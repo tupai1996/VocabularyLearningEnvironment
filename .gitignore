@@ -172,3 +172,36 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# === RL Training Outputs ===
+# Ignore intermediate PPO checkpoints
+runs/**/ppo_tutor_*_steps.zip
+
+# Keep only final or best model checkpoints
+!runs/**/ppo_tutor_*1000000_steps.zip
+!runs/**/ppo_tutor_best.zip
+
+# TensorBoard logs
+runs/**/events.out.tfevents*
+
+# Temporary run dirs
+runs/**/tmp/**
+runs/**/rollouts/**
+runs/**/traj_*.npz
+
+# Large zip artifacts (optional, if you use Git LFS for them)
+*.zip
+
+# CSV/plots (small, useful for results) - DO NOT ignore
+# runs/**/metrics.csv
+# runs/**/eval_summary.csv
+# runs/**/plots/*.png
+
+# === Project-specific ignores ===
+# Experiment configs generated at runtime
+runs/**/config_*.json
+runs/**/args.json
+runs/**/env.json
+
+# Checkpoint metadata
+runs/**/checkpoint/*

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from teacher.items import TeachingItem
+from ..teacher.items import TeachingItem
 from copy import deepcopy
 
 

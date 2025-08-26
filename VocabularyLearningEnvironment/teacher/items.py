@@ -27,4 +27,4 @@ class WordItem(TeachingItem):
         return self.target
     
     def is_answer_correct(self, answer: str) -> bool:
-        return self.target == self.get_answer()
+        return answer == self.get_answer()
