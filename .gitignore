@@ -202,6 +202,17 @@ runs/**/traj_*.npz
 runs/**/config_*.json
 runs/**/args.json
 runs/**/env.json
+# === Screenshots ===
+# Ignore common screenshot file types
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
 
+# Ignore typical screenshot naming patterns
+[Ss]creenshot*
+[sS]creen-shot*
+Screen\ Shot*   # macOS default naming
 # Checkpoint metadata
 runs/**/checkpoint/*
