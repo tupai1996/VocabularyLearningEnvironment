@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 import os
 import argparse
-from functools import partial
+import numpy as np
 
 import gymnasium as gym
-import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize, VecMonitor
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, BaseCallback
 from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, BaseCallback
+from stable_baselines3.common.vec_env import (
+    SubprocVecEnv, VecNormalize, VecMonitor, VecEnvWrapper
+)
 
 from VocabularyLearningEnvironment.rl.env_tutoring_multi import MultiLearnerTutorEnv
 
-# -------- Optional tqdm-based progress bar for older SB3 versions --------
-# If SB3>=2.0 you can also rely on model.learn(progress_bar=True).
+# -------- Optional tqdm progress for any SB3 version --------
 try:
     from tqdm import tqdm
     _HAS_TQDM = True
@@ -22,54 +22,104 @@ except Exception:
 
 
 class TqdmCallback(BaseCallback):
-    """
-    A progress bar that works with any SB3 version.
-    - Updates every ._on_step() using model.num_timesteps
-    - Closes cleanly at training end
-    """
     def __init__(self, total_timesteps: int, verbose=0):
         super().__init__(verbose)
         self.total_timesteps = int(total_timesteps)
         self._last = 0
         self._tqdm = None
-        self._fallback_printed = False
 
     def _on_training_start(self) -> None:
         if _HAS_TQDM:
             self._tqdm = tqdm(total=self.total_timesteps, desc="Training PPO (multi-learner)", unit="steps")
         else:
-            # Very lightweight fallback
             print("Training PPO (multi-learner): tqdm not installed. Showing coarse progress...")
-        return None
 
     def _on_step(self) -> bool:
         cur = int(self.model.num_timesteps)
         delta = cur - self._last
         self._last = cur
-        if _HAS_TQDM and self._tqdm is not None:
-            if delta > 0:
-                self._tqdm.update(delta)
-        else:
-            # Fallback: print every 10%
-            pct = (cur / max(1, self.total_timesteps)) * 100.0
-            # Print at ~10% steps
-            bucket = int(pct // 10) * 10
-            # store last bucket on self.locals to avoid spam
-            lb = getattr(self, "_last_bucket", -1)
-            if bucket != lb and bucket <= 100:
-                print(f"Progress: {bucket}% ({cur}/{self.total_timesteps} steps)")
-                setattr(self, "_last_bucket", bucket)
+        if _HAS_TQDM and self._tqdm is not None and delta > 0:
+            self._tqdm.update(delta)
         return True
 
     def _on_training_end(self) -> None:
         if _HAS_TQDM and self._tqdm is not None:
             self._tqdm.update(self.total_timesteps - self._tqdm.n)
             self._tqdm.close()
-        else:
-            print("Training complete.")
-        return None
 
 
+# -------- Per-learner logging to SB3's TB writer --------
+class PerLearnerTensorboardCallback(BaseCallback):
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            for k, v in info.items():
+                if isinstance(k, str) and (k.startswith("per_learner/") or k.startswith("global/")):
+                    try:
+                        self.logger.record(k, float(v))
+                    except Exception:
+                        pass
+        return True
+
+
+# -------- Eval logging to TB --------
+class EvalTensorboard(EvalCallback):
+    def _on_step(self) -> bool:
+        result = super()._on_step()
+        # Log immediately after an eval cycle
+        if (self.n_calls % max(1, self.eval_freq) == 0) and (self.last_mean_reward is not None):
+            self.logger.record("eval/mean_reward", float(self.last_mean_reward))
+            try:
+                import numpy as _np
+                self.logger.record("eval/ep_len_mean", float(_np.mean(self._episode_lengths)))
+            except Exception:
+                pass
+        return result
+
+
+# -------- Action-masking wrapper for training --------
+class MaskInvalidActionsVec(VecEnvWrapper):
+    """
+    VecEnv wrapper that replaces invalid actions (per sub-env get_action_mask())
+    with a uniformly-sampled valid action before stepping.
+
+    Enable by wrapping the *outermost* vec env: PPO -> MaskInvalidActionsVec(VecMonitor(VecNormalize(Subproc...)))
+    """
+    def __init__(self, venv, enable_masking: bool = True):
+        super().__init__(venv)
+        self.enable_masking = enable_masking
+
+    def reset(self):
+        """
+        Forward reset() to underlying vec env and return obs.
+        """
+        return self.venv.reset()
+
+    def step_async(self, actions):
+        if not self.enable_masking:
+            return self.venv.step_async(actions)
+
+        fixed = np.array(actions).copy()
+        try:
+            # returns list of masks, one per sub-env
+            masks = self.venv.env_method("get_action_mask")
+            for i, m in enumerate(masks):
+                if m is None:
+                    continue
+                if not bool(m[fixed[i]]):  # invalid action → resample
+                    valid = np.flatnonzero(m)
+                    if valid.size > 0:
+                        fixed[i] = int(np.random.choice(valid))
+        except Exception:
+            fixed = actions  # fallback: no masking
+        return self.venv.step_async(fixed)
+
+    def step_wait(self):
+        return self.venv.step_wait()
+
+
+
+# -------- Env factory --------
 def make_env(rank, seed, n_learners, n_items, horizon):
     def _init():
         env = MultiLearnerTutorEnv(
@@ -82,6 +132,7 @@ def make_env(rank, seed, n_learners, n_items, horizon):
     return _init
 
 
+# -------- Linear LR schedule --------
 def linear_schedule(initial_value: float):
     def func(progress_remaining: float):
         return progress_remaining * initial_value
@@ -97,6 +148,8 @@ def main():
     parser.add_argument("--n_items", type=int, default=500)
     parser.add_argument("--horizon", type=int, default=600)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--mask_training", action="store_true",
+                        help="Enable action masking during training (resample invalid actions).")
     args = parser.parse_args()
 
     set_random_seed(args.seed)
@@ -106,35 +159,47 @@ def main():
                for i in range(args.n_envs)]
     vec = SubprocVecEnv(env_fns)
 
-    # ----- Obs/Reward normalization -----
+    # Normalize then monitor
     vec = VecNormalize(vec, norm_obs=True, norm_reward=True, clip_obs=5.0, clip_reward=5.0, gamma=0.99)
     vec = VecMonitor(vec)
-    # ----- Eval env (no reward norm update) -----
+
+    # Wrap with training-time masking if requested (must be outermost)
+    if args.mask_training:
+        vec = MaskInvalidActionsVec(vec, enable_masking=True)
+
+ # ----- Eval env -----
     eval_env = SubprocVecEnv([make_env(10+i, args.seed, args.n_learners, args.n_items, args.horizon) for i in range(2)])
     eval_env = VecNormalize(eval_env, training=False, norm_obs=True, norm_reward=False, clip_obs=5.0)
     eval_env = VecMonitor(eval_env)
+
+    # Match training env type if masking enabled
+    if args.mask_training:
+        eval_env = MaskInvalidActionsVec(eval_env, enable_masking=True)
+
+
     os.makedirs(args.logdir, exist_ok=True)
 
     # ----- Callbacks -----
-    eval_cb = EvalCallback(
+    eval_cb = EvalTensorboard(
         eval_env,
         best_model_save_path=os.path.join(args.logdir, "best"),
         log_path=os.path.join(args.logdir, "eval"),
         eval_freq=max(1, 25_000 // max(1, args.n_envs)),
         deterministic=True,
-        render=False
+        render=False,
+        verbose=1
     )
     ckpt_cb = CheckpointCallback(
         save_freq=max(1, 100_000 // max(1, args.n_envs)),
         save_path=os.path.join(args.logdir, "ckpts"),
         name_prefix="ppo_multi"
     )
-
-    # Progress bar callback (works for all SB3 versions)
     pbar_cb = TqdmCallback(total_timesteps=args.total_timesteps)
+    per_learner_cb = PerLearnerTensorboardCallback()
 
     # ----- PPO config -----
-    policy_kwargs = dict(net_arch=[dict(pi=[256, 128], vf=[256, 128])])
+    policy_kwargs = dict(net_arch=dict(pi=[256, 128], vf=[256, 128]))
+
 
     model = PPO(
         "MlpPolicy",
@@ -145,8 +210,8 @@ def main():
         n_epochs=10,
         gamma=0.99,
         gae_lambda=0.95,
-        clip_range=0.15,
-        ent_coef=0.005,
+        clip_range=0.2,
+        ent_coef=0.01,
         vf_coef=0.5,
         max_grad_norm=0.5,
         tensorboard_log=args.logdir,
@@ -155,24 +220,27 @@ def main():
         verbose=1
     )
 
-    # Prefer SB3 native progress bar if available (>=2.0); otherwise TqdmCallback covers it.
-    # Using try/except to not rely on version checks.
+    # Learn (support SB3>=2.0 and older)
     try:
         model.learn(
             total_timesteps=args.total_timesteps,
-            callback=[eval_cb, ckpt_cb, pbar_cb],
-            progress_bar=True  # native SB3 progress bar (ignored by older SB3)
+            callback=[eval_cb, ckpt_cb, pbar_cb, per_learner_cb],
+            progress_bar=True
         )
     except TypeError:
-        # Older SB3: no progress_bar kw; still show TqdmCallback
         model.learn(
             total_timesteps=args.total_timesteps,
-            callback=[eval_cb, ckpt_cb, pbar_cb]
+            callback=[eval_cb, ckpt_cb, pbar_cb, per_learner_cb]
         )
 
     # Save final + VecNormalize stats
     model.save(os.path.join(args.logdir, "final_model"))
-    vec.save(os.path.join(args.logdir, "vecnorm.pkl"))
+    # If you wrapped with MaskInvalidActionsVec, unwrap before saving VecNormalize stats
+    base_vec = vec.venv if isinstance(vec, MaskInvalidActionsVec) else vec
+    if isinstance(base_vec, VecMonitor):
+        base_vec = base_vec.venv
+    if isinstance(base_vec, VecNormalize):
+        base_vec.save(os.path.join(args.logdir, "vecnorm.pkl"))
 
 
 if __name__ == "__main__":
