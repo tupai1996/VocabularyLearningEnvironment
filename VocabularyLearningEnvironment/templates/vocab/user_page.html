@@ -1,0 +1,695 @@
+{% extends "base.html" %}
+
+{% block title %}User Page{% endblock %}
+
+{% block content %}
+<div class="user_page_container">
+  
+  <div class="d-flex justify-content-end p-2">
+    {% if request.user %}
+        <small>
+        {{ request.user.username }} |
+        <a href="{% url 'logout' %}">Logout</a>
+        </small>
+    {% endif %}
+</div>
+  <h1>Welcome, {{ username }}!</h1>
+
+  <div class="create_deck_card">
+    <form method="post" action="{% url 'create_list' 10 %}">
+      {% csrf_token %} 
+      <button class="create_button" type="submit">Create New Deck</button>
+      <div class="deck_inputs">
+          <input class="name_deck_input" type="text" name="list_name" placeholder="Deck name" required>
+          <input class="desc_deck_input" type="text" name="description" placeholder="Description">
+      </div> 
+      <div class="public-checkbox">
+          <label>
+              <input type="checkbox" name="is_public"> Make this deck public
+          </label>
+      </div>
+    </form>
+</div>
+
+<h2 class="section-title">My Vocabulary Lists</h2>
+<div class="deck-container" id="my-decks-container">
+  {% for deck in user_decks %}
+    <div class="deck-card" data-deck-id="{{ deck.id }}">
+      <h3>{{ deck.list_name }}</h3>
+      <h4>{{ deck.description }}</h4>
+      <div class="deck-status">
+        {% if deck.is_public %}
+          <span class="status-badge public-badge">Public</span>
+          <form method="post" action="{% url 'reverse_privacy' deck.id %}">
+            {% csrf_token %}
+            <button class="reverse-privacy-button-public" type="submit">Make Private</button>
+          </form>
+        {% else %}
+          <span class="status-badge private-badge">Private</span>
+          <form method="post" action="{% url 'reverse_privacy' deck.id %}">
+            {% csrf_token %}
+            <button class="reverse-privacy-button-private" type="submit">Make Public</button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="deck-actions">
+        <form method="post" action="{% url 'delete_list' deck.id %}" class = "delete-form">
+          {% csrf_token %}
+          <button type="submit" class="delete-btn">Delete</button>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+    <p class="no-items-message">You haven't created any vocabulary lists yet.</p>
+  {% endfor %}
+</div>
+
+{% if public_decks %}
+<hr>
+<h2 class="section-title">Public Vocabulary Lists</h2>
+<div class="deck-container" id="public-decks-container">
+  {% for deck in public_decks %}
+    <div class="deck-card public-deck-card">
+      <h3>{{ deck.list_name }}</h3>
+      <h4>{{ deck.description }}</h4>
+      <div class="deck-creator">
+        <span class="creator-info">Created by: {{ deck.user.username }}</span>
+        <span class="vocab-count">{{ deck.vocabularies.count }} words</span>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<hr>
+
+<div class="create_deck_card">
+  <form method="post" action="">
+    {% csrf_token %}
+    <input type="hidden" name="form_type" value="create_session">
+
+    <h2 style="margin:6px 0 12px; color:#1e4eb6;">Create Study Session</h2>
+
+    <div class="deck_inputs">
+      {{ session_form.non_field_errors }}
+      {{ session_form.name.errors }}{{ session_form.name }}
+
+      <div id="vocab-list-field">
+        {{ session_form.vocabulary_list.errors }}{{ session_form.vocabulary_list }}
+      </div>
+
+      <div id="quiz-list-field" style="display:none;">
+        {{ session_form.quiz_list.errors }}{{ session_form.quiz_list }}
+      </div>
+
+      {{ session_form.goal_type.errors }}{{ session_form.goal_type }}
+      {{ session_form.goal_value.errors }}{{ session_form.goal_value }}
+      {{ session_form.start_date.errors }}{{ session_form.start_date }}
+      {{ session_form.end_date.errors }}{{ session_form.end_date }}
+    </div>
+    <br/>
+    <button class="create_button" type="submit">Create Session</button>
+  </form>
+</div>
+
+  <h2 class="section-title">Study Sessions</h2>
+  <div class="deck-container" id="sessions-container">
+    {% for s in sessions %}
+    {% if s.goal_type != "quiz" %}
+    <div class="deck-card" id="session-{{ s.id }}">
+      <h3>{{ s.name }}</h3>
+      <h4>
+        Deck: {{ s.vocabulary_list.list_name }}<br>
+        {{ s.start_date }} → {{ s.end_date }}<br>
+        Goal: {{ s.get_goal_type_display }} = {{ s.goal_value }}
+      </h4>
+      <p class="progress-text" id="progress-{{ s.id }}">Loading progress...</p>
+      <div class="deck-actions">
+        {% if s.is_running_today %}
+          <button class="deck-btn session-start"
+            data-session-id="{{ s.id }}"
+            data-deck-id="{{ s.vocabulary_list.id }}">
+            Study
+          </button>
+        {% else %}
+          <span class="status-badge ended-badge">Ended</span>
+        {% endif %}
+      
+        <form method="post" action="{% url 'delete_session' s.id %}" class="delete-session-form" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="delete-btn" aria-label="Delete session {{ s.name }}">
+            Delete Session
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% empty %}
+      <p class="no-items-message">No study sessions yet.</p>
+    {% endfor %}
+  </div>
+
+  <h2 class="section-title">Quiz Sessions</h2>
+  <div class="deck-container">
+    {% for s in quiz_sessions %}
+    <div class="deck-card quiz-session-card"
+    id="quiz-session-{{ s.id }}"
+    data-running="{{ s.is_running_today|yesno:'true,false' }}">
+      <h3>{{ s.name }}</h3>
+      <h4>
+        Quiz from Memory<br>
+        {{ s.start_date }} → {{ s.end_date }}<br>
+        Questions: {{ s.goal_value }}
+      </h4>
+      <div class="deck-actions">
+        {% if s.is_running_today %}
+          <button class="deck-btn quiz-start" data-session-id="{{ s.id }}">Start Quiz</button>
+        {% else %}
+          <span class="status-badge ended-badge">Ended</span>
+        {% endif %}
+      
+        <form method="post" action="{% url 'delete_session' s.id %}" class="delete-session-form" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="delete-btn" aria-label="Delete quiz session {{ s.name }}">Delete Quiz</button>
+        </form>
+      </div>
+
+      <button class="deck-btn quiz-restart" data-session-id="{{ s.id }}" style="margin-top:10px; display:none;">
+        Restart
+  </button>
+    </div>
+    {% empty %}
+      <p class="no-items-message">No quiz sessions yet.</p>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const goalTypeSelect = document.querySelector("#id_goal_type");
+  const vocabField = document.getElementById("vocab-list-field");
+  const quizField = document.getElementById("quiz-list-field");
+
+  const vocabSelect = document.querySelector("#id_vocabulary_list") || (vocabField && vocabField.querySelector("select"));
+  const quizSelect  = document.querySelector("#id_quiz_list")       || (quizField  && quizField.querySelector("select"));
+
+const parent = vocabField?.parentNode;
+
+  function toggleFields() {
+    const isQuiz = goalTypeSelect && goalTypeSelect.value === "quiz";
+
+    if (vocabField && vocabField.parentNode) {
+      vocabField.parentNode.removeChild(vocabField);
+    }
+    if (quizField && quizField.parentNode) {
+      quizField.parentNode.removeChild(quizField);
+    }
+
+    if (isQuiz && quizField) {
+      parent.insertBefore(quizField, parent.querySelector("br") || null);
+    } else if (!isQuiz && vocabField) {
+      parent.insertBefore(vocabField, parent.querySelector("br") || null);
+    }
+  }
+
+if (goalTypeSelect) {
+  goalTypeSelect.addEventListener("change", toggleFields);
+  toggleFields(); 
+}
+
+  // normal study session start
+  document.querySelectorAll('.session-start').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.sessionId;
+      try {
+        const r = await fetch(`/sessions/${id}/start/`, { credentials: 'same-origin' });
+      const data = await r.json();
+      if (!r.ok || data.status !== "started") {
+        alert(data.message || 'This session cannot be started.');
+          return;
+        }
+      // Şimdi sadece yönlendir
+      window.location.href = `{% url 'home' %}?session_id=${id}`;
+      // NOT: deck_id parametresine artık gerek yok, backend session_id'den anlar
+      } catch (err) {
+        console.error(err);
+        alert('An error occurred while starting the session.');
+      }
+    });
+  });
+
+  // quiz session start
+  document.querySelectorAll('.quiz-start').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.sessionId;
+      try {
+        const r = await fetch(`/sessions/${id}/start/`, { credentials: 'same-origin' });
+      const data = await r.json();
+      if (!r.ok || data.status !== "started") {
+        alert(data.message || 'This quiz session cannot be started.');
+          return;
+        }
+        window.location.href = `/quiz/?session_id=${id}`;
+      } catch (err) {
+        console.error(err);
+        alert('An error occurred while starting the quiz.');
+      }
+    });
+  });
+
+
+  // deck delete confirm
+  document.querySelectorAll('form.delete-form').forEach(form=>{
+    form.addEventListener('submit', (e)=>{
+      const title = form.closest('.deck-card').querySelector('h3')?.textContent?.trim() || 'this deck';
+      if(!confirm(`Delete "${title}"? This cannot be undone.`)){
+        e.preventDefault();
+      }
+    });
+  });
+
+  // session delete confirm
+  document.querySelectorAll('form.delete-session-form').forEach(form=>{
+    form.addEventListener('submit', (e)=>{
+      const title = form.closest('.deck-card')?.querySelector('h3')?.textContent?.trim() || 'this session';
+      if(!confirm(`Delete "${title}" session? This cannot be undone.`)){
+        e.preventDefault();
+      }
+    });
+  });
+
+  async function updateQuizButtons(sessionId) {
+    try {
+      const r = await fetch(`/sessions/${sessionId}/quiz_status/`, { credentials: 'same-origin' });
+      const j = await r.json();
+      const card = document.getElementById(`quiz-session-${sessionId}`);
+      if (!card || !j.has_quiz) return;
+  
+      const startBtn   = card.querySelector('.quiz-start');
+      const restartBtn = card.querySelector('.quiz-restart');
+      const canStartToday = (card.dataset.running === 'true');
+  
+      if (j.is_complete) {
+        if (startBtn)   startBtn.style.display = 'none';
+        if (restartBtn) restartBtn.style.display = '';
+      } else {
+        if (restartBtn) restartBtn.style.display = 'none';
+        if (startBtn)   startBtn.style.display = canStartToday ? '' : 'none';
+      }
+    } catch (e) {
+      console.error('quiz_status failed', e);
+    }
+  }
+  
+  
+  // Call it for each quiz card on load
+  document.querySelectorAll("[id^='quiz-session-']").forEach(card => {
+    const id = card.id.replace("quiz-session-", "");
+    updateQuizButtons(id);
+  });
+
+  // progress poller
+  async function fetchProgress(id) {
+    try {
+      const r = await fetch(`/sessions/${id}/progress/`, { credentials: 'same-origin' });
+      const j = await r.json();
+      const el = document.getElementById(`progress-${id}`);
+      if (el) {
+        let text = `Goal: ${j.progress}/${j.goal_value} ${j.goal_type === "minutes_per_day" ? "minutes" : "reviews"}`;
+        if (j.progress >= j.goal_value) text += " Completed!";
+        el.innerText = text;
+      }
+      const card = document.getElementById(`session-${id}`);
+      if (card) {
+        const actions = card.querySelector(".deck-actions");
+        const btn = actions.querySelector(".session-start");
+        if (!j.is_running_today) {
+          if (btn) btn.remove();
+          if (!actions.querySelector(".ended-badge")) {
+            const span = document.createElement("span");
+            span.classList.add("status-badge", "ended-badge");
+            span.textContent = "Ended";
+            actions.prepend(span);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Progress fetch failed", e);
+    }
+  }
+
+  document.querySelectorAll("[id^='session-']").forEach(card => {
+    const id = card.id.replace("session-", "");
+    fetchProgress(id);
+    setInterval(() => fetchProgress(id), 10000); //every ten seconds, the progress is updated
+  });
+
+  function getCSRF() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    if (m && m.content && m.content !== 'NOTPROVIDED') return m.content;
+    const c = document.cookie.match(/(^|;\s*)csrftoken=([^;]+)/);
+    return c ? decodeURIComponent(c[2]) : '';
+  }
+
+  document.querySelectorAll('.quiz-restart').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.sessionId;
+      if (!confirm('Restart this quiz? Score and progress will be reset.')) return;
+
+      try {
+        const r = await fetch(`/sessions/${id}/restart_quiz/`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'X-CSRFToken': getCSRF(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: ''
+        });
+
+        const j = await r.json().catch(()=>({}));
+        if (!r.ok) {
+          alert(j.message || 'Could not reset quiz.');
+          return;
+        }
+
+        const card = document.getElementById(`quiz-session-${id}`);
+        if (card) {
+          const startBtn   = card.querySelector('.quiz-start');
+          const restartBtn = card.querySelector('.quiz-restart');
+
+          const canStartToday = (card.dataset.running === 'true');
+
+          if (restartBtn) restartBtn.style.display = 'none';
+          if (startBtn)   startBtn.style.display   = canStartToday ? '' : 'none';
+        }
+
+        alert(`Quiz reset. ${j.question_count} questions ready.`);
+      } catch (err) {
+        console.error(err);
+        alert('Network error while resetting the quiz.');
+      }
+    });
+  });
+</script>
+{% endblock %}
+
+
+{% block head %}
+<style>
+  .user_page_container{
+        background-color:#f0f4f8;
+        padding:10px;
+        text-align:center;
+        width:95%;          
+        min-height:100vh;    
+        border-radius:30px;    
+        box-shadow:0 4px 20px rgba(0, 0, 0, 0.1);    
+        margin: 60px auto;
+  }
+    
+  h1{
+    color:#1e4eb6;
+    font-size:2rem;
+    margin: 35px 0;
+    font-weight:800;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+  }
+
+  .section-title {
+    color:#1e4eb6;
+    font-size:1.5rem;
+    margin: 30px 0 20px;
+    font-weight:700;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+  }
+
+  .no-items-message {
+    color: #666;
+    font-style: italic;
+    margin: 20px 0;
+  }
+
+  .deck-container{
+    display:flex;
+    flex-wrap:wrap;
+    gap:32px;
+    justify-content:center;
+    margin-bottom: 20px;
+  }
+
+  .deck-card{
+    background:#fff;
+    border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,.10);
+    padding:28px 24px;
+    width:260px;
+    text-align:center;
+    transition:transform .18s ease, box-shadow .18s ease;
+  }
+  .deck-card:hover{
+    transform:translateY(-3px);
+    box-shadow:0 10px 26px rgba(0,0,0,.14);
+  }
+
+  .public-deck-card {
+    border: 2px solid #3b82f6;
+    background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+  }
+
+  .quiz-session-card {
+    border: 2px solid #7c3aed;
+    background: linear-gradient(135deg, #fff 0%, #faf5ff 100%);
+  }
+
+  .deck-card h3{
+    margin:0 0 1px;
+    color:#1e4eb6;
+    font-size:1.47rem;
+    font-weight:800;
+    line-height:1.2;
+  }
+
+  .quiz-session-card h3{
+    color:#7c3aed;
+  }
+
+  .deck-card h4{
+    margin:0 0 16px;
+    color:#031e5c;
+    font-size: 0.9rem;
+    font-weight:470;
+    line-height:1.2;
+  }
+
+  .deck-status {
+    margin: 8px 0;
+  }
+
+  .status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .public-badge {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+  }
+
+  .private-badge {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+
+  .deck-creator {
+    margin: 12px 0;
+    font-size: 0.8rem;
+  }
+
+  .creator-info {
+    display: block;
+    color: #374151;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .vocab-count {
+    display: block;
+    color: #6b7280;
+    font-style: italic;
+  }
+
+  .deck-btn{
+    padding:12px 16px;
+    border:none;
+    border-radius:10px;
+    background:#2d6aa6;
+    color:#fff;
+    cursor:pointer;
+    font-weight:700;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .deck-btn:hover{ background:#1e4eb6; }
+
+  .quiz-start {
+    background: #7c3aed;
+  }
+  .quiz-start:hover {
+    background: #6d28d9;
+  }
+
+  .create_deck_card{
+    background:#ffffff;
+    display: flex;
+    justify-content: center;
+    margin: 20px auto;
+    border-radius:14px;
+    box-shadow:0 6px 40px rgba(0,0,0,.35);
+    padding:20px;
+    width:525px;
+    min-height: 150px; 
+    text-align:center;
+    transition:transform .18s ease, box-shadow .18s ease;
+    position: relative;
+  } 
+  .create_deck_card .public-checkbox {
+    margin-top: auto; 
+    position: absolute;
+    bottom: 2px;
+    right: 20px;
+    color: #10204d; 
+    font-weight: 460;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .create_deck_card .public-checkbox input[type="checkbox"] {
+    accent-color: #1e3a8a;
+    margin-right: 2px; 
+  }
+
+  .create_button{
+    border:none;
+    border-radius:10px;
+    background:#2d6aa6;
+    color:#fff;
+    cursor:pointer;
+    font-weight:700;
+    width:240px;
+    height: 45px;
+    margin-bottom: 10px; 
+    margin-top: 0px;    
+  }
+  .create_button:hover{ background:#1e4eb6; }
+
+  .create-card{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .deck_inputs {
+    display: flex;        
+    gap: 6px;          
+    justify-content: center; 
+    flex-wrap: wrap; 
+    margin-top: 0px;     
+   }
+  
+   .deck_inputs input{
+    font-size:18px; 
+    width:235px; 
+    padding:8px; 
+    border:2px solid #2d6aa6; 
+    background-color:#d3e2f1;
+    border-radius:8px; 
+    margin: 10;
+    display: block;
+  }
+
+  .deck_inputs select{
+    font-size:18px; 
+    width:235px; 
+    padding:8px; 
+    border:2px solid #2d6aa6; 
+    background-color:#d3e2f1;
+    border-radius:8px; 
+    margin: 10;
+    display: block;
+  }
+
+  .deck-actions{
+    display:flex;
+    gap:10px;
+    justify-content:center;
+    align-items:center;
+  }
+  
+  .delete-btn{
+    padding:12px 16px;
+    border:none;
+    border-radius:10px;
+    background:#e11d48;       
+    color:#fff;
+    cursor:pointer;
+    font-weight:700;
+  }
+  .delete-btn:hover{ background:#be123c; }
+
+  .progress-text {
+    font-size: 0.85rem;
+    color: #374151;
+    margin: 8px 0;
+    font-weight: 500;
+  }
+
+  .reverse-privacy-button-public{
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #d6dee0;
+    color: #10002d;
+    border: 1px solid #8e8e8e;
+  }
+
+  .reverse-privacy-button-private{
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #d6dee0;
+    color: #10002d;
+    border: 1px solid #8e8e8e;
+  }
+
+  .ended-badge {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .quiz-restart {
+    background: #f59e0b;
+    margin-top: 8px;
+    width: 70%;
+  }
+  .quiz-restart:hover {
+    background: #d97706;
+  }
+</style>
+{% endblock %}
