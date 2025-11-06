@@ -1,0 +1,14 @@
+5388c95 HEAD@{Thu Nov 6 23:49:47 2025}  pull --rebase origin Soumabrata_tehsis (start): checkout 5388c9500064e825de5dd146fcac621107768fb9
+6dab212 HEAD@{Thu Nov 6 23:47:02 2025}  reset: moving to HEAD
+6dab212 HEAD@{Thu Nov 6 23:37:48 2025}  checkout: moving from safety1 to Soumabrata_tehsis
+6dab212 HEAD@{Thu Nov 6 23:37:44 2025}  checkout: moving from Soumabrata_tehsis to safety1
+6dab212 HEAD@{Thu Nov 6 23:35:52 2025}  checkout: moving from safety-branch to Soumabrata_tehsis
+6dab212 HEAD@{Thu Nov 6 23:35:46 2025}  checkout: moving from Soumabrata_tehsis to safety-branch
+6dab212 HEAD@{Thu Nov 6 23:18:28 2025}  commit: up to date
+43f50c7 HEAD@{Mon Sep 8 06:16:00 2025}  commit: Multi learner
+d2f6e10 HEAD@{Wed Aug 27 02:57:12 2025}  checkout: moving from main to Soumabrata_tehsis
+d1f5d4a HEAD@{Wed Aug 27 02:57:09 2025}  checkout: moving from Soumabrata_tehsis to main
+d2f6e10 HEAD@{Wed Aug 27 02:53:59 2025}  commit: Thesis_update(Single learner+comparison with random and letner)
+d1f5d4a HEAD@{Wed Aug 27 02:29:16 2025}  checkout: moving from Soumabrata_tehsis to Soumabrata_tehsis
+d1f5d4a HEAD@{Wed Aug 27 02:29:03 2025}  checkout: moving from main to Soumabrata_tehsis
+d1f5d4a HEAD@{Wed Aug 27 00:27:11 2025}  clone: from https://github.com/ppaamm/VocabularyLearningEnvironment.git
