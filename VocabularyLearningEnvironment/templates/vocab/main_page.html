@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Home Page{% endblock %}
+
+{% block content %}
+<div class="main_container">
+    <h1>Welcome to Vocabulary Learning Environment!</h1>
+
+    <form action="{% url 'join' %}" method="get" style="display:inline-block;">
+        {% csrf_token %}
+        <button type="submit" class="btn">Sign Up</button>
+    </form>
+
+    <form action="{% url 'login' %}" method="get" style="display:inline-block;">
+        {% csrf_token %}
+        <button type="submit" class="btn">Login</button>
+    </form>
+</div>
+
+{% endblock %}
+
+{% block head %}
+<style>
+    .main_container{
+        background-color: #f0f4f8;   
+        padding: 40px;
+        border-radius: 15px;
+        text-align: center;          
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        width: 80%;
+        height: 70vh;
+        margin: 60px auto;
+    }
+
+    h1 {
+        color: #1e4eb6;
+        font-size: 2.7em;
+        margin-top: 100px;
+        margin-bottom: 80px;
+        font-weight: bold;
+    }    
+</style>
+{% endblock %}
