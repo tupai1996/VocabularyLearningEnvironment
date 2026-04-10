@@ -16,7 +16,7 @@ from gymnasium import spaces
 @dataclass
 class RewardCfg:
     correct: float = 1.0
-    incorrect: float = -1.0
+    incorrect: float = -0.5
     invalid_action: float = -0.10
     step_cost: float = -0.001
     mastery_bonus: float = 2.0
